@@ -1,0 +1,445 @@
+#include "network.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+/* NEURAL NETWORK FUNCTIONS */
+
+// Initializes the network struct with random weights and biases
+void network_init (network_t *network, int n, int *sizes, float **b, float ***w) {
+  int i,j,k;  
+
+  network->nlayers = n;
+  network->sizes = sizes;
+  network->b = b;
+  network->w = w;
+
+  // Set the seed
+  srand(RAND_SEED_START);
+
+  // Randomize weights and biases
+  for(i = 1; i < n; i++) {
+    for(j = 0; j < network->sizes[i]; j++) {
+      network->b[i][j] = random_wb();
+      for(k = 0; k < network->sizes[i-1]; k++) {
+        network->w[i][j][k] = random_wb();
+      }
+    }
+  }
+}
+
+// Initializes the network and loads the weights and biases from a file
+void network_init_file (network_t *network, int n, int *sizes, float **b, float ***w, const char*filename){
+  int i,j,k;
+  FILE *fptr;
+
+  network->nlayers = n;
+  network->sizes = sizes;
+  network->b = b;
+  network->w = w;
+
+  // Set the seed
+  srand(RAND_SEED_START);
+
+  fptr = fopen(filename, "rb");
+  if (fptr != NULL) {
+    for(i = 1; i < network->nlayers; i++) {
+      //printf("Loading layer %0d\n", i);
+      for(j = 0; j < network->sizes[i]; j++) {
+    	//printf("Loading neuron %0d\n", j);
+        fread(&(network->b[i][j]), sizeof(float), 1, fptr);
+        for(k = 0; k < network->sizes[i-1]; k++) {
+          //printf("Loading weight %0d\n", k);
+          fread(&(network->w[i][j][k]), sizeof(float), 1, fptr);
+        }
+      }
+    }
+
+  } else {
+    printf("Error: Couldn't open file %s to load the network. Network will consist of random numbers\n", filename);
+  }
+}
+
+// Dumps the neural network weights and biases to an output file
+void network_filedump(network_t network, const char*filename) {
+  int i,j,k;
+  FILE *fptr = fopen(filename, "wb");
+  if (fptr != NULL) {
+    for(i = 1; i < network.nlayers; i++) {
+      for(j = 0; j < network.sizes[i]; j++) {
+        fwrite(&(network.b[i][j]), sizeof(float), 1, fptr);
+        for(k = 0; k < network.sizes[i-1]; k++) {
+          fwrite(&(network.w[i][j][k]), sizeof(float), 1, fptr);
+        }
+      }
+    }
+  } else {
+    printf("Error: Couldn't open file %s to dump the network.\n", filename);
+  }
+}
+
+
+// Feedforward - Produces the output of the neural network
+// training = test input
+// out = size of output layer.  
+void feedforward (network_t network, training_data_t *training, float *out) {
+   float activations[NUM_LAYERS][MAX_NEURON_PER_LAYER]; // activations per layer 
+   int i,j; 
+
+  // Initialize input stage
+  for(i = 0; i < INPUT_LAYER_SIZE; i++) {
+    activations[0][i] = training->data[i];
+  }
+  
+  // Iterate through neural network
+  for(i = 1; i < network.nlayers; i++) {
+    for(j = 0; j < network.sizes[i]; j++) {
+      activations[i][j] = dot(network.sizes[i-1], activations[i-1], network.w[i][j]) + network.b[i][j];
+      activations[i][j] = sigmoid(activations[i][j]); 
+    }
+  }
+
+  for(i = 0; i < OUTPUT_LAYER_SIZE; i++) {
+    out[i] = activations[network.nlayers-1][i];
+  }
+
+}
+
+// Stochastic Gradient Descent
+// Randomize indices in the training set and assign a range of the random indizes to each minibatch
+// Train the network on each minibatch
+void SGD (network_t network, training_data_t *training_set,  int training_size, int epochs, int mini_batch_size, float eta){
+  int i, j;
+  int mini_batch_min, mini_batch_max;
+  int training_map[MAX_TRAINING_SET_SIZE];
+
+  // initialize the array used for partitioning the training set
+  for(i = 0; i < MAX_TRAINING_SET_SIZE; i++) 
+    training_map[i] = i;
+
+  for(i = 0; i < epochs; i++) {
+    shuffle(training_map, training_size);
+    
+    // Train the neural network on each minibatch
+    for(j = 0; j < training_size/mini_batch_size; j++) {
+      mini_batch_min = j * mini_batch_size;
+      mini_batch_max = mini_batch_min + mini_batch_size - 1;
+      update_mini_batch(network, training_set, training_map, mini_batch_min, mini_batch_max, eta);
+    }
+  }
+}
+
+// Train the neural network on a minibatch using backpropagation
+// The minibatch of the training set are the indices of training set in training_map between
+// mini_batch_min and mini_batch_max
+void update_mini_batch(network_t network, training_data_t *training_set, int *training_map, int mini_batch_min, int mini_batch_max, float eta) {
+  float db[NUM_LAYERS][MAX_NEURON_PER_LAYER];
+  float dw[NUM_LAYERS][MAX_NEURON_PER_LAYER][MAX_NEURON_PER_LAYER];
+  int i, j, k;
+  float mini_batch_size;
+  training_data_t *curr_set;
+
+  mini_batch_size = (float)(mini_batch_max - mini_batch_min + 1);
+
+  // Zero out the delta weight and bias structures
+  for(i = 1; i < network.nlayers; i++) {
+    for (j = 0; j < network.sizes[i]; j++) {
+      for(k = 0; k < network.sizes[i-1]; k++) {
+        dw[i][j][k] = 0;
+      }
+      db[i][j] = 0;
+    }
+  }
+
+  // Calculate the deltas for weight and bias for each entry 
+  // in the training set
+  for(i = mini_batch_min; i <= mini_batch_max; i++) {
+    curr_set = &training_set[training_map[i]];
+    backprop(network, db, dw, curr_set);
+  }
+
+  // Update the neural network off of the delta weights and biases
+  for(i = 1; i < network.nlayers; i++) {
+    for (j = 0; j < network.sizes[i]; j++) {
+      for(k = 0; k < network.sizes[i-1]; k++) {
+        network.w[i][j][k] -= ((eta / mini_batch_size) * dw[i][j][k]);
+      }
+      network.b[i][j] -= ((eta / mini_batch_size) * db[i][j]);
+    }
+  }
+
+}
+
+// Sets the values in the arrays db (delta_bias) and dw (delta_weight)
+// The values in db and dw will be the gradient of the cost function C_x
+void backprop(network_t network, float db[][MAX_NEURON_PER_LAYER], float dw[][MAX_NEURON_PER_LAYER][MAX_NEURON_PER_LAYER], training_data_t *training) {
+   float z[NUM_LAYERS][MAX_NEURON_PER_LAYER]; // z output per layer (before sigmoid is applied)
+   float activations[NUM_LAYERS][MAX_NEURON_PER_LAYER]; // activations per layer 
+   float delta[NUM_LAYERS][MAX_NEURON_PER_LAYER]; // Deltas per layer
+   int i,j,k; 
+
+  /* Feedforward */
+
+
+  // Initialize input stage
+  for(i = 0; i < INPUT_LAYER_SIZE; i++) {
+    activations[0][i] = training->data[i];
+  }
+  
+  // Iterate through neural network
+  for(i = 1; i < network.nlayers; i++) {
+    for(j = 0; j < network.sizes[i]; j++) {
+      z[i][j] = dot(network.sizes[i-1], activations[i-1], network.w[i][j]) + network.b[i][j];
+      activations[i][j] = sigmoid(z[i][j]); 
+    }
+  }
+  
+  /* Backward Pass */
+  
+  // Calculate delta for output layer
+  cost_derivative(delta[network.nlayers-1], activations[network.nlayers-1], training->output);
+  for(i = 0; i < OUTPUT_LAYER_SIZE; i++) {
+    delta[network.nlayers-1][i] *= sigmoid_prime(z[network.nlayers-1][i]);
+  }
+
+  // Update db and dw for output layer
+  for(i = 0; i < OUTPUT_LAYER_SIZE; i++) {
+    db[network.nlayers-1][i] += delta[network.nlayers-1][i];
+    for(j = 0; j < network.sizes[network.nlayers-2]; j++) {
+      dw[network.nlayers-1][i][j] += delta[network.nlayers-1][i] * activations[network.nlayers-2][j];
+    }
+  }
+
+  // Update the rest of the layers
+  for(i = 2; i < network.nlayers; i++) {
+    for(j = 0; j < network.sizes[network.nlayers - i]; j++) {
+      delta[network.nlayers-i][j] = dot_transpose(network.sizes[network.nlayers-i+1] , j, network.w[network.nlayers-i+1], delta[network.nlayers-i+1]);
+      delta[network.nlayers-i][j] *= sigmoid_prime(z[network.nlayers-i][j]);
+      db[network.nlayers-i][j] += delta[network.nlayers-i][j];
+      for(k = 0; k < network.sizes[network.nlayers-i-1]; k++) {
+        dw[network.nlayers-i][j][k] += delta[network.nlayers-i][j] * activations[network.nlayers-i-1][k];
+      }
+    }
+  }
+}
+
+// Given an input data set, return the number of correctly predicted inputs
+int evaluate (network_t network, training_data_t *data, int num_tests) {
+  int i = 0;
+  int j = 0;
+  int correct_count = 0;
+  int found_error;
+  float max_val;
+  int max_ind;
+  float network_out[OUTPUT_LAYER_SIZE];
+
+  for(i = 0; i < num_tests; i++) {
+    if(USE_HW_ACCEL)
+      feedforward_hw(network, &(data[i]), network_out);
+    else 
+      feedforward(network, &(data[i]), network_out);
+    found_error = 0;
+    max_val = network_out[0];
+    max_ind = 0;
+    network_out[0] = 0;
+    for(j = 1; j < OUTPUT_LAYER_SIZE; j++) {
+      if(network_out[j] > max_val) {
+        max_val = network_out[j];
+        max_ind = j;
+      }  
+      network_out[j] = 0;
+    }
+    network_out[max_ind] = 1;
+    for(j = 0; j < OUTPUT_LAYER_SIZE; j++) {
+      if(network_out[j] != data[i].output[j]) 
+        found_error = 1;
+    }
+
+    if(!found_error) {
+      correct_count++;
+      printf("Predicted: Correct :)\n");
+    }
+    else {
+      printf("Predicted: Incorrect :(\n");
+    }
+  }
+
+  return correct_count;
+}
+
+/* MISC HELPER FUNCTIONS */
+
+// Returns the vector of partial derivatives of C_x for the output activations
+void cost_derivative(float *cost, float *output, float *y) {
+  int i;
+
+  for(i = 0; i < OUTPUT_LAYER_SIZE; i++) {
+    cost[i] = output[i] - y[i];
+  }
+}
+
+// Calculates the dot product of vectors a and b
+float dot (int n, float *a, float *b) {
+  int i = 0;
+  float sum = 0;
+
+  for(i = 0; i < n; i++) {
+    sum = sum + (a[i] * b[i]); 
+  }
+
+  return sum;
+}
+
+// Calculates the dot product of vectors aT and b
+float dot_transpose (int n, int row_a, float **a, float *b) {
+  int i = 0;
+  float sum = 0;
+
+  for(i = 0; i < n; i++) {
+    sum = sum + (a[i][row_a] * b[i]); 
+  }
+
+  return sum;
+}
+
+// Sigmoid Function
+float sigmoid (float z) {
+  return (1.0 / (1.0 + exp(-1 * z)));
+}
+
+// Derivative of the sigmoid functions
+float sigmoid_prime (float z) {
+  return (sigmoid(z) * (1-sigmoid(z)));
+}
+
+// Vector calculation of sigmoid
+void sigmoid_vect (int n, float *z, float *sz) {
+  int i;
+
+  for(i = 0; i < n; i++) {
+    sz[i] = sigmoid(z[i]);
+  }
+}
+
+// Vector calculation of sigmoid prime
+void sigmoid_prime_vect (int n, float *z, float *szp) {
+  int i;
+
+  for(i = 0; i < n; i++) {
+    szp[i] = sigmoid_prime(z[i]);
+  }
+}
+
+// Generate a random float between 1 and -1
+float random_wb() {
+  // use seed random so the results are predictable between different runs
+  return (1.0 - (float)rand() / ((float)RAND_MAX / 2.0));
+}
+
+// Shuffles the array randomly
+void shuffle(int *array, int n)
+{
+  int i, j, t;
+
+  if (n > 1) 
+  {
+    for (i = 0; i < n - 1; i++) 
+    {
+      j = i + rand() / (RAND_MAX / (n - i) + 1);
+      t = array[j];
+      array[j] = array[i];
+      array[i] = t;
+    }
+  }
+}
+
+
+
+/* Accelerator Functions */
+
+void program_accelerator(network_t network) {
+  int i,j,k;
+
+  int l1_size, l2_size;
+  int merged_size;
+
+  volatile int *Command = (int *)ADDR_COMMANDS;
+  volatile int *Data    = (int *)ADDR_DATA;
+  volatile int *Layer   = (int *)ADDR_LAYER_SIZE;
+
+  *Command = START_PROGRAMMING;
+
+  for(i = 1; i < network.nlayers; i++) {
+    // Program Weights
+    if(i == 1)
+      *Command = START_WEIGHT_H;
+    else
+      *Command = START_WEIGHT_O;
+    for(j = 0; j < network.sizes[i-1]; j++) { // over each activation
+      for(k = 0; k < network.sizes[i]; k++) { // for each neuron
+        *Data = network.w[i][k][j];
+      }
+      *Command = ALIGN_ADDR;
+    }
+    // Program Biases
+    if(i == 1)
+      *Command = START_BIAS_H;
+    else
+      *Command = START_BIAS_O;
+    for(j = 0; j < network.sizes[i]; j++) {
+      *Data = network.b[i][j];
+    }
+  }
+  *Command = ALIGN_ADDR;
+
+  // Program Layer Sizes
+  l1_size = network.sizes[1];
+  l2_size = network.sizes[2];
+
+  merged_size = l1_size;
+  merged_size |= (l2_size << 16);
+
+  *Layer = merged_size;
+
+}
+
+void feedforward_hw (network_t network, training_data_t *training, float *out) {
+   float activations[NUM_LAYERS][MAX_NEURON_PER_LAYER]; // activations per layer 
+   int i,j; 
+
+   volatile int *Command 	= (int *)ADDR_COMMANDS;
+  volatile int *Status  	= (int *)ADDR_COMMANDS;
+   volatile int *Data    	= (int *)ADDR_DATA;
+   volatile int *Ptr		= (int *)ADDR_PTR;
+
+  *Command = START_INPUT;
+  *Data = 0x00001010;
+  *Command = READ_OUTPUT;
+
+
+  // Send input to accelerator
+  *Command = START_INPUT;
+  //printf("Pointer at %0d\n", *Ptr);
+  for(i = 0; i < INPUT_LAYER_SIZE; i++) {
+    *Data = training->data[i];
+  }
+  
+  /*Debug*/
+  *Command = READ_OUTPUT;
+  //printf("Pointer at %0d\n", *Ptr);
+  //for(i = 0; i < INPUT_LAYER_SIZE;i++) {
+	 //printf("Data%0d: %0f Accel: %0f\n",i ,training->data[i], (float)*Data);
+  //}
+
+  *Command = ACC_START;
+
+  while(*Status == PROCESSING_PENDING);
+
+  // Copy the output stage
+  *Command = READ_OUTPUT;
+  for(i = 0; i < OUTPUT_LAYER_SIZE; i++) {
+    out[i] = *Data;
+  }
+  *Command = READ_OUTPUT; //to reset the pointer
+
+}

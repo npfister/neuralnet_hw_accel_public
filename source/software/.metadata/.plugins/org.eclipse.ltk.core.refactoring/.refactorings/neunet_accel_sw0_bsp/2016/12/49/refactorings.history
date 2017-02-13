@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Move 1 resources to &apos;neunet_accel_sw0_bsp&apos;" description="Move 1 resources to &apos;neunet_accel_sw0_bsp&apos;" destination="/neunet_accel_sw0_bsp" element1="/neunet_accel_sw0/trained_network.txt" flags="7" id="org.eclipse.ltk.core.refactoring.move.resources" resources="1" stamp="1480802770231" updateReferences="true"/>
+</session>

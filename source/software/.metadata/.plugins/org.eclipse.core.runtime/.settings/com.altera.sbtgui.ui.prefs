@@ -1,0 +1,4 @@
+eclipse.preferences.version=1
+newSoftwareExampleWizardPage.defaultLocation=/home/ecegrid/a/695r18/ece695r/neunet_accel/source/software/neunet_accel_sw0
+newSoftwareExampleWizardPage.sopcinfoFile=/home/ecegrid/a/695r18/ece695r/neunet_accel/nios_system.sopcinfo
+newSoftwareExampleWizardPage2.newBspLocation=/home/ecegrid/a/695r18/ece695r/neunet_accel/source/software/neunet_accel_sw0_bsp

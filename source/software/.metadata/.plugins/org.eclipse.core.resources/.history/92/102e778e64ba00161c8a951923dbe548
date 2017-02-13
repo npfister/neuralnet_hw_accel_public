@@ -1,0 +1,71 @@
+#ifndef NETWORK_H
+#define NETWORK_H
+
+#include "system.h"
+
+#define USE_HW_ACCEL 1
+
+#define RAND_SEED_START 0x5
+#define MAX_NEURON_PER_LAYER 784
+#define MAX_TRAINING_SET_SIZE 250 
+#define INPUT_LAYER_SIZE 784
+#define OUTPUT_LAYER_SIZE 10
+#define HIDDEN_NEURONS 30
+#define OUTPUT_THRESHOLD 0.5
+#define NUM_LAYERS 3
+
+/* Neural Network Accelerator Commands */
+#define START_PROGRAMMING   0x1
+#define START_WEIGHT_H      0x2
+#define START_WEIGHT_O      0x4
+#define START_BIAS_H        0x3
+#define START_BIAS_O        0x5
+#define ALIGN_ADDR          0x8
+#define START_INPUT         0x6
+#define READ_OUTPUT         0x7
+#define ACC_START           0x9
+
+/* Neural Nework Addresses */
+#define ADDR_COMMANDS     (0x0 + NEURAL_NET_ACCELERATOR_0_BASE)
+#define ADDR_DATA         (0x1 + NEURAL_NET_ACCELERATOR_0_BASE)
+#define ADDR_LAYER_SIZE   (0x7 + NEURAL_NET_ACCELERATOR_0_BASE)
+
+#define PROCESSING_PENDING   0x0
+
+typedef struct {
+  int nlayers;
+  int *sizes;
+  float **b;
+  float ***w;
+} network_t;
+
+typedef struct {
+  float *data;
+  float output[OUTPUT_LAYER_SIZE];
+} training_data_t;
+
+// neural network functions
+void network_init (network_t *network, int n, int *sizes, float **b, float ***w);
+void network_init_file (network_t *network, int n, int *sizes, float **b, float ***w, const char*filename);
+void network_filedump(network_t network, const char*filename);
+void feedforward (network_t network, training_data_t *training, float *out);
+void SGD (network_t network, training_data_t *training_set,  int training_size, int epochs, int mini_batch_size, float eta);
+void update_mini_batch(network_t network, training_data_t *training_set, int *training_map, int mini_batch_min, int mini_batch_max, float eta);
+void backprop(network_t network, float db[][MAX_NEURON_PER_LAYER], float dw[][MAX_NEURON_PER_LAYER][MAX_NEURON_PER_LAYER], training_data_t *training);
+int evaluate (network_t network, training_data_t *test_data, int num_tests);
+
+// helper functions
+void cost_derivative(float *cost, float *output, float *y);
+float dot (int n, float *a, float *b);
+float dot_transpose (int n, int row_a, float **a, float *b);
+float sigmoid (float z);
+float sigmoid_prime (float z);
+void sigmoid_vect (int n, float *z, float *sz);
+void sigmoid_prime_vect (int n, float *z, float *szp);
+float random_wb();
+void shuffle(int *array, int n);
+
+void feedforward_hw (network_t network, training_data_t *training, float *out);
+void program_accelerator(network_t network);
+
+#endif //NETWORK_H

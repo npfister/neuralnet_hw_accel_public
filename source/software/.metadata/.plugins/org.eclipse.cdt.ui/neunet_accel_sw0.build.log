@@ -1,0 +1,7 @@
+
+**** Clean-only build of configuration Nios II for project neunet_accel_sw0 ****
+
+make clean 
+[neunet_accel_sw0 clean complete]
+
+**** Build Finished ****
